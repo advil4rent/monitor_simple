@@ -199,19 +199,28 @@ impl PeckKeys {
                 } else {
                     if let Some(revts) = pollfds[0].revents() {
                         if revts.contains(PollEventFlags::POLLIN) {
-                            //let lines_val = all_keys.get_values()
-                            //    .map_err(|e:GpioError| Error::LinesSetError {source: e, lines: &[13,14,15]}).unwrap();
-                            //TODO fix LinesSetError (somehow) so that specific line is displayed instead of vector of lines
-                            //match lines_val.iter().position(| &line | line == 1).unwrap() {
-                            //    0 => println!("Line 13 pecked!"),
-                            //    1 => println!("Line 14 pecked!"),
-                            //    2 => println!("Line 15 pecked!"),
-                            //    _ => println!("Couldn't detect key peck")
-                            //}
-                            //let lines_val: Vec<u8> = vec![0,0,0];
-                            println!("placeholdertext")
-                        } else if revts.contains(PollEventFlags::POLLPRI) {
-                            println!("Gpio 2.25 Poll Exception Received");
+                            let h = &mut interrupt;
+                            if revts.contains(PollEventFlags::POLLIN) {
+                                let event = h.get_event().unwrap();
+                                println!("[{}] {:?}", h.line().offset(), event);
+
+
+                                let val = h.get_value().unwrap();
+                                println!("    {}", val);
+                                let lines_val = all_keys.get_values()
+                                    .map_err(|e:GpioError| Error::LinesSetError {source: e, lines: &[13,14,15]}).unwrap();
+                                //TODO fix LinesSetError (somehow) so that specific line is displayed instead of vector of lines
+                                match lines_val.iter().position(| &line | line == 1).unwrap() {
+                                    0 => println!("Line 13 pecked!"),
+                                    1 => println!("Line 14 pecked!"),
+                                   2 => println!("Line 15 pecked!"),
+                                    _ => println!("Couldn't detect key peck")
+                                }
+                                //let lines_val: Vec<u8> = vec![0,0,0];
+
+                            } else if revts.contains(PollEventFlags::POLLPRI) {
+                                println!("Gpio 2.25 Poll Exception Received");
+                            }
                         }
                     }
                 }
