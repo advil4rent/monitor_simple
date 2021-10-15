@@ -1,18 +1,15 @@
-use gpio_cdev::{Chip,
-                LineRequestFlags, LineEventHandle,
-                LineHandle, MultiLineHandle,
-                EventRequestFlags, EventType,
-                errors::Error as GpioError
-};
+use gpio_cdev::{Chip, LineRequestFlags, LineEventHandle, LineHandle, MultiLineHandle, EventRequestFlags, EventType, errors::Error as GpioError, LineEvent};
 use tokio::{task::JoinHandle,
             time::Duration,
             //sync::{oneshot, mpsc}
 };
 use thiserror;
-use std::{sync::{Arc, Mutex,}};
+use std::{sync::{Arc, Mutex, }, iter};
 //                atomic::{AtomicI8, AtomicUsize, Ordering}}};
 use std::os::unix::io::AsRawFd;
 use nix::poll::*;
+use std::iter::Map;
+
 type PollEventFlags = nix::poll::PollFlags;
 
 pub struct PeckLEDs {
@@ -55,7 +52,15 @@ impl PeckBoard {
     }
 }
 impl PeckLEDs {
+    const LINES: [u32;2] = [0,1];
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
+        let line_handles: Vec<LineHandle> = Self::LINES.iter()
+            .map(|&offset| {
+                chip.get_line(offset).unwrap()
+                    .request(LineRequestFlags::OUTPUT, 0, "peckboard")
+                    .unwrap()
+            }).collect();
+
         let right_blue = chip
             .get_line(0)
             .map_err(|e: GpioError| Error::LineGetError { source: e, line: 0 })?
@@ -136,6 +141,7 @@ impl PeckLEDs {
 impl PeckKeys {
     const INTERRUPT_CHIP: &'static str = "/dev/gpiochip2";
     const INTERRUPT_LINE: u32 = 24;
+    const PECK_KEY_LINES: [u32; 3] = [13,14,15];
 
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
         //TODO: make sure request flags for key lines are correct
@@ -171,55 +177,58 @@ impl PeckKeys {
             all_keys
         })
     }
+
     pub async fn monitor(&mut self) -> Result<(), Error> {
-        let all_keys = Arc::clone(&self.all_keys);
 
         tokio::spawn( async move {
-            let mut interrupt_chip = Chip::new(&Self::INTERRUPT_CHIP).map_err(|e:GpioError|
-                Error::ChipError {source: e,
-                    chip: ChipNumber::Chip2}).unwrap();
-            let mut interrupt = interrupt_chip
-                .get_line(*&Self::INTERRUPT_LINE)
-                .map_err(|e:GpioError| Error::ChipError {source: e,
-                        chip: ChipNumber::Chip4}).unwrap()
-                .events(LineRequestFlags::INPUT,
-                        EventRequestFlags::RISING_EDGE,
-                        "peckboard_interrupt")
-                .map_err(|e:GpioError| Error::LineReqError {source: e, line: 25}).unwrap();
-            // Create a vector of file descriptors for polling
-            let mut pollfds: [PollFd; 1] =
-                [PollFd::new(interrupt.as_raw_fd(),
-                            PollEventFlags::POLLIN | PollEventFlags::POLLPRI)];
-            let all_keys = all_keys.lock().unwrap();
+            let mut chip2 = Chip::new(&Self::INTERRUPT_CHIP)
+                .map_err(|e:GpioError| Error::ChipError {source: e, chip: ChipNumber::Chip2})
+                .unwrap();
+            let mut evt_handles: Vec<LineEventHandle> = iter::once(Self::INTERRUPT_LINE)
+                .map(|offset| {
+                    let line = chip2.get_line(offset)
+                        .map_err(|e:GpioError| Error::LineGetError {source: e, line: 24}).unwrap();
+                            //TODO: figure out how to convert &&u32 to u8 for map_err above
+                    line.events(
+                        LineRequestFlags::INPUT,
+                        EventRequestFlags::FALLING_EDGE,
+                        "peck_interrupt_monitor",
+                    ).unwrap()
+                }).collect();
+            let mut pollfds: Vec<PollFd> = evt_handles.iter()
+                .map(|handle| {
+                    PollFd::new(handle.as_raw_fd(),
+                                PollEventFlags::POLLIN| PollEventFlags::POLLPRI)
+                })
+                .collect();
+
+            let mut chip4 = Chip::new("/dev/gpiochip4")
+                .map_err(|e:GpioError| Error::ChipError {source: e, chip: ChipNumber::Chip4})
+                .unwrap();
+            let key_handles: Vec<LineHandle> = Self::PECK_KEY_LINES.iter()
+                .map(|&offset| {
+                    chip4.get_line(offset).map_err(|e:GpioError| Error::LineGetError {source: e, line: 24}).unwrap()
+                        .request(LineRequestFlags::INPUT, 0, "peck_key_monitor")
+                        .unwrap()
+                }).collect();
 
             loop {
-                // poll for an event on 2.25
                 if poll(&mut pollfds, -1).unwrap() == 0 {
-                    println!("Timeout")
+                    println!("Timeout?!?");
                 } else {
-                    if let Some(revts) = pollfds[0].revents() {
-                        if revts.contains(PollEventFlags::POLLIN) {
-                            let h = &mut interrupt;
-                            if revts.contains(PollEventFlags::POLLIN) {
-                                let event = h.get_event().unwrap();
-                                println!("[{}] {:?}", h.line().offset(), event);
-
-
-                                let val = h.get_value().unwrap();
-                                println!("    {}", val);
-                                let lines_val = all_keys.get_values()
-                                    .map_err(|e:GpioError| Error::LinesSetError {source: e, lines: &[13,14,15]}).unwrap();
-                                //TODO fix LinesSetError (somehow) so that specific line is displayed instead of vector of lines
-                                match lines_val.iter().position(| &line | line == 1).unwrap() {
-                                    0 => println!("Line 13 pecked!"),
-                                    1 => println!("Line 14 pecked!"),
-                                   2 => println!("Line 15 pecked!"),
-                                    _ => println!("Couldn't detect key peck")
+                    for i in 0..pollfds.len() {
+                        if let Some(revents) = pollfds[i].revents() {
+                            let h = &mut evt_handles[i];
+                            h.get_event(); //get_event removes the latest event to prevent infinite looping
+                            if revents.contains(PollEventFlags::POLLIN) {
+                                for handle in key_handles.iter() {
+                                    let val = handle.get_value().unwrap();
+                                    if val == 1 {
+                                        println!("Key {:?} pecked", handle.line().offset())
+                                    }
                                 }
-                                //let lines_val: Vec<u8> = vec![0,0,0];
-
-                            } else if revts.contains(PollEventFlags::POLLPRI) {
-                                println!("Gpio 2.25 Poll Exception Received");
+                            } else if revents.contains(PollEventFlags::POLLPRI) {
+                                println!("[{}] Got a POLLPRI", h.line().offset());
                             }
                         }
                     }
