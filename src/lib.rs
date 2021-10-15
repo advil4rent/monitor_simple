@@ -9,28 +9,14 @@ use std::{sync::{Arc, Mutex, }, iter};
 use std::os::unix::io::AsRawFd;
 use nix::poll::*;
 use std::iter::Map;
+use nix::poll::{poll, PollFd};
 
 type PollEventFlags = nix::poll::PollFlags;
 
 pub struct PeckLEDs {
-    pub right_blue: LineHandle, //0
-    pub center_blue:LineHandle, //1
-    pub left_blue: LineHandle, //2
-    pub right_red: LineHandle, //3
-    pub center_red: LineHandle, //4
-    pub left_red: LineHandle, //5
-    pub right_green: LineHandle, //6
-    pub center_green: LineHandle, //7
-    pub left_green: LineHandle, //8
-    right_ir: LineHandle, //9
-    center_ir: LineHandle, //10
-    left_ir: LineHandle //11
+    handles: Vec<LineHandle>
 }
 pub struct PeckKeys {
-    pub right: Arc<Mutex<LineHandle>>,  //13
-    pub center: Arc<Mutex<LineHandle>>, //14
-    pub left: Arc<Mutex<LineHandle>>,   //15
-    pub all_keys: Arc<Mutex<MultiLineHandle>>
 }
 pub struct PeckBoard {
     pub leds: PeckLEDs,
@@ -52,89 +38,22 @@ impl PeckBoard {
     }
 }
 impl PeckLEDs {
-    const LINES: [u32;2] = [0,1];
+    const LINES: [u32; 12] = [0,1,2,3,4,5,6,7,8,9,10,11];
+    const LN_NAMES: [&'static str; 12] = ["right_blue","center_blue","left_blue",
+                                          "right_red","center_red","left_red",
+                                          "right_green","center_green","left_green",
+                                          "right_ir","center_ir","left_ir"];
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
         let line_handles: Vec<LineHandle> = Self::LINES.iter()
             .map(|&offset| {
-                chip.get_line(offset).unwrap()
-                    .request(LineRequestFlags::OUTPUT, 0, "peckboard")
+                chip.get_line(offset).map_err(|e: GpioError|
+                Error::LineGetError {source: e, line: offset})
+                    .request(LineRequestFlags::OUTPUT, 0, "Peckboard")
                     .unwrap()
             }).collect();
 
-        let right_blue = chip
-            .get_line(0)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 0 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 0 })?;
-        let center_blue = chip
-            .get_line(1)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 1 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 1 })?;
-        let left_blue = chip
-            .get_line(2)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 2 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 2 })?;
-        let right_red = chip
-            .get_line(3)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 3 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 3 })?;
-        let center_red = chip
-            .get_line(4)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 4 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 4 })?;
-        let left_red = chip
-            .get_line(5)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 5 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 5 })?;
-        let right_green = chip
-            .get_line(6)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 6 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 6 })?;
-        let center_green = chip
-            .get_line(7)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 7 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 7 })?;
-        let left_green = chip
-            .get_line(8)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 8 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 8 })?;
-        let right_ir = chip
-            .get_line(9)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 9 })?
-            .request(LineRequestFlags::OUTPUT, 1, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 9 })?;
-        let center_ir = chip
-            .get_line(10)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 10 })?
-            .request(LineRequestFlags::OUTPUT, 1, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 10 })?;
-        let left_ir = chip
-            .get_line(11)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 11 })?
-            .request(LineRequestFlags::OUTPUT, 0, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 11 })?;
-
         Ok(PeckLEDs{
-            right_blue,
-            center_blue,
-            left_blue,
-            right_red,
-            center_red,
-            left_red,
-            right_green,
-            center_green,
-            left_green,
-            right_ir,
-            center_ir,
-            left_ir
+            handles: line_handles
         })
     }
 }
@@ -144,42 +63,10 @@ impl PeckKeys {
     const PECK_KEY_LINES: [u32; 3] = [13,14,15];
 
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
-        //TODO: make sure request flags for key lines are correct
-        let right_key = chip
-            .get_line(13)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 13 })?
-            .request(LineRequestFlags::INPUT, 1, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 13 })?;
-        let right_key = Arc::new(Mutex::new(right_key));
-        let center_key = chip
-            .get_line(14)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 14 })?
-            .request(LineRequestFlags::INPUT, 1, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 14 })?;
-        let center_key = Arc::new(Mutex::new(center_key));
-        let left_key = chip
-            .get_line(15)
-            .map_err(|e: GpioError| Error::LineGetError { source: e, line: 15 })?
-            .request(LineRequestFlags::INPUT, 1, "peckboard")
-            .map_err(|e: GpioError| Error::LineReqError { source: e, line: 15 })?;
-        let left_key = Arc::new(Mutex::new(left_key));
-        let all_keys = chip
-            .get_lines(&[13,14,15])
-            .map_err(|e:GpioError| Error::LinesGetError {source: e, lines: &[13,14,15]})?
-            .request(LineRequestFlags::INPUT, &[1,1,1], "stepper")
-            .map_err(|e:GpioError| Error::LinesReqError {source: e, lines: &[13,14,15]})?;
-        let all_keys = Arc::new(Mutex::new(all_keys));
-
-        Ok(PeckKeys{
-            right: right_key,
-            center: center_key,
-            left: left_key,
-            all_keys
-        })
+        Ok(PeckKeys{})
     }
 
     pub async fn monitor(&mut self) -> Result<(), Error> {
-
         tokio::spawn( async move {
             let mut chip2 = Chip::new(&Self::INTERRUPT_CHIP)
                 .map_err(|e:GpioError| Error::ChipError {source: e, chip: ChipNumber::Chip2})
@@ -237,7 +124,6 @@ impl PeckKeys {
         });
         Ok(())
     }
-
 }
 
 #[derive(Debug)]
@@ -258,7 +144,7 @@ pub enum Error {
     #[error("Failed to get line")]
     LineGetError {
         source: GpioError,
-        line: u8,
+        line: u32,
     },
     #[error("Failed to request line")]
     LineReqError {
