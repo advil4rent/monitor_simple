@@ -47,7 +47,7 @@ impl PeckLEDs {
         let line_handles: Vec<LineHandle> = Self::LINES.iter()
             .map(|&offset| {
                 chip.get_line(offset).map_err(|e: GpioError|
-                Error::LineGetError {source: e, line: offset})
+                Error::LineGetError {source: e, line: offset}).unwrap()
                     .request(LineRequestFlags::OUTPUT, 0, "Peckboard")
                     .unwrap()
             }).collect();
