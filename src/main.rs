@@ -10,7 +10,7 @@ async fn main() {
     peck_board.keys.monitor().await.unwrap();
     loop {
         println!("A little tune");
-        thread::sleep_ms(10000);
+        thread::sleep(tokio::time::Duration::from_secs(10));
     }
     println!("awaiting monitor")
 }
