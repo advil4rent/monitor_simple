@@ -9,14 +9,17 @@ use std::{sync::{Arc, Mutex, }, iter};
 use std::os::unix::io::AsRawFd;
 use nix::poll::*;
 use std::iter::Map;
-use nix::poll::{poll, PollFd};
 
 type PollEventFlags = nix::poll::PollFlags;
 
 pub struct PeckLEDs {
-    handles: Vec<LineHandle>
+    line_handles: Vec<LineHandle>
 }
 pub struct PeckKeys {
+    //pub right: Arc<Mutex<LineHandle>>,  //13
+    //pub center: Arc<Mutex<LineHandle>>, //14
+    //pub left: Arc<Mutex<LineHandle>>,   //15
+    //pub all_keys: Arc<Mutex<MultiLineHandle>>
 }
 pub struct PeckBoard {
     pub leds: PeckLEDs,
@@ -27,7 +30,7 @@ impl PeckBoard {
     pub async fn new (chip: &str) -> Result<Self, Error> {
         let mut chip = Chip::new(chip).map_err(|e:GpioError|
             Error::ChipError {source: e,
-            chip: ChipNumber::Chip4}
+                chip: ChipNumber::Chip4}
         )?;
         let keys = PeckKeys::new(&mut chip)?;
         let leds = PeckLEDs::new(&mut chip)?;
@@ -38,22 +41,17 @@ impl PeckBoard {
     }
 }
 impl PeckLEDs {
-    const LINES: [u32; 12] = [0,1,2,3,4,5,6,7,8,9,10,11];
-    const LN_NAMES: [&'static str; 12] = ["right_blue","center_blue","left_blue",
-                                          "right_red","center_red","left_red",
-                                          "right_green","center_green","left_green",
-                                          "right_ir","center_ir","left_ir"];
+    const LINES: [u32;2] = [0,1];
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
         let line_handles: Vec<LineHandle> = Self::LINES.iter()
             .map(|&offset| {
-                chip.get_line(offset).map_err(|e: GpioError|
-                Error::LineGetError {source: e, line: offset}).unwrap()
-                    .request(LineRequestFlags::OUTPUT, 0, "Peckboard")
+                chip.get_line(offset).unwrap()
+                    .request(LineRequestFlags::OUTPUT, 0, "peckboard")
                     .unwrap()
             }).collect();
 
         Ok(PeckLEDs{
-            handles: line_handles
+            line_handles
         })
     }
 }
@@ -63,10 +61,14 @@ impl PeckKeys {
     const PECK_KEY_LINES: [u32; 3] = [13,14,15];
 
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
-        Ok(PeckKeys{})
+
+        Ok(PeckKeys{
+
+        })
     }
 
     pub async fn monitor(&mut self) -> Result<(), Error> {
+
         tokio::spawn( async move {
             let mut chip2 = Chip::new(&Self::INTERRUPT_CHIP)
                 .map_err(|e:GpioError| Error::ChipError {source: e, chip: ChipNumber::Chip2})
@@ -75,7 +77,7 @@ impl PeckKeys {
                 .map(|offset| {
                     let line = chip2.get_line(offset)
                         .map_err(|e:GpioError| Error::LineGetError {source: e, line: 24}).unwrap();
-                            //TODO: figure out how to convert &&u32 to u8 for map_err above
+                    //TODO: figure out how to convert &&u32 to u8 for map_err above
                     line.events(
                         LineRequestFlags::INPUT,
                         EventRequestFlags::FALLING_EDGE,
@@ -124,6 +126,7 @@ impl PeckKeys {
         });
         Ok(())
     }
+
 }
 
 #[derive(Debug)]
@@ -144,7 +147,7 @@ pub enum Error {
     #[error("Failed to get line")]
     LineGetError {
         source: GpioError,
-        line: u32,
+        line: u8,
     },
     #[error("Failed to request line")]
     LineReqError {
