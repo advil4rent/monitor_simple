@@ -1,4 +1,9 @@
-use gpio_cdev::{Chip, LineRequestFlags, LineEventHandle, LineHandle, MultiLineHandle, EventRequestFlags, EventType, errors::Error as GpioError, LineEvent};
+use gpio_cdev::{Chip, AsyncLineEventHandle,
+                LineRequestFlags, LineEventHandle,
+                LineHandle, MultiLineHandle,
+                EventRequestFlags, EventType,
+                errors::Error as GpioError, LineEvent};
+use futures::stream::StreamExt;
 use tokio::{task::JoinHandle,
             time::Duration,
             //sync::{oneshot, mpsc}
@@ -6,11 +11,7 @@ use tokio::{task::JoinHandle,
 use thiserror;
 use std::{sync::{Arc, Mutex, }, iter};
 //                atomic::{AtomicI8, AtomicUsize, Ordering}}};
-use std::os::unix::io::AsRawFd;
-use nix::poll::*;
 use std::iter::Map;
-
-type PollEventFlags = nix::poll::PollFlags;
 
 pub struct PeckLEDs {
     pub light_handles: Vec<LineHandle>,
@@ -75,45 +76,25 @@ impl PeckKeys {
             let mut chip2 = Chip::new(&Self::INTERRUPT_CHIP)
                 .map_err(|e:GpioError| Error::ChipError {source: e, chip: ChipNumber::Chip2})
                 .unwrap();
-            let mut evt_handles: Vec<LineEventHandle> = iter::once(Self::INTERRUPT_LINE)
-                .map(|offset| {
-                    let line = chip2.get_line(offset)
-                        .map_err(|e:GpioError| Error::LineGetError {source: e, line: 24}).unwrap();
-                            //TODO: figure out how to convert &&u32 to u8 for map_err above
-                    line.events(
-                        LineRequestFlags::INPUT,
-                        EventRequestFlags::FALLING_EDGE,
-                        "peck_interrupt_monitor",
-                    ).unwrap()
-                }).collect();
-            let mut pollfds: Vec<PollFd> = evt_handles.iter()
-                .map(|handle| {
-                    PollFd::new(handle.as_raw_fd(),
-                                PollEventFlags::POLLIN| PollEventFlags::POLLPRI)
-                })
-                .collect();
+            let interrupt_line = chip2.get_line(Self::INTERRUPT_LINE)
+                .map_err(|e:GpioError| Error::LineGetError {source:e, line: Self::INTERRUPT_LINE}).unwrap();
+            let mut events = AsyncLineEventHandle::new(interrupt_line.events(
+                LineRequestFlags::INPUT,
+                EventRequestFlags::FALLING_EDGE,
+                "async peckboard interrupt",
+            ).unwrap()).unwrap();
 
             let mut chip4 = Chip::new("/dev/gpiochip4")
                 .map_err(|e:GpioError| Error::ChipError {source: e, chip: ChipNumber::Chip4})
                 .unwrap();
             let key_handles: MultiLineHandle = chip4.get_lines(&Self::PECK_KEY_LINES).unwrap()
                 .request(LineRequestFlags::INPUT, &[0,0,0], "peck_keys").unwrap();
+
             loop {
-                if poll(&mut pollfds, -1).unwrap() == 0 {
-                    println!("Timeout?!?");
-                } else {
-                    for i in 0..pollfds.len() {
-                        if let Some(revents) = pollfds[i].revents() {
-                            let h = &mut evt_handles[i];
-                            h.get_event(); //get_event removes the latest event to prevent infinite looping
-                            if revents.contains(PollEventFlags::POLLIN) {
-                                println!("Values are: {:?}", key_handles.get_values().unwrap())
-                            } else if revents.contains(PollEventFlags::POLLPRI) {
-                                println!("[{}] Got a POLLPRI", h.line().offset());
-                            }
-                        }
-                    }
-                }
+                match events.next().await {
+                    Some(event) => { println!("Values are: {:?}", key_handles.get_values().unwrap()) },
+                    None => break,
+                };
             }
         });
         Ok(())
@@ -139,12 +120,12 @@ pub enum Error {
     #[error("Failed to get line")]
     LineGetError {
         source: GpioError,
-        line: u8,
+        line: u32,
     },
     #[error("Failed to request line")]
     LineReqError {
         source: GpioError,
-        line: u8,
+        line: u32,
     },
     #[error("Failed to get lines")]
     LinesGetError {
