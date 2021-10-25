@@ -25,25 +25,34 @@ pub struct PeckBoard {
     pub leds: PeckLEDs,
     pub keys: PeckKeys,
 }
+#[derive(Clone, Copy, Debug)]
 pub enum LedState {
     Off,
-    Red = 1,
-    Blue = 2,
-    Green = 3,
-    All = 4,
+    Red,
+    Blue,
+    Green,
+    All,
 }
 impl LedState {
-
-    fn next(&mut self) -> Self {
+    fn next(mut self) -> Self {
         match self {
-            LedState::Off => {*self = LedState::Red}
-            LedState::Red => {*self = LedState::Blue}
-            LedState::Blue => {*self = LedState::Green}
-            LedState::Green => {*self = LedState::Blue}
-            LedState::All => {*self = LedState::All}
+            LedState::Off => {
+                println!("Red now");
+                self = LedState::Red}
+            LedState::Red => {
+                println!("Blue now");
+                self = LedState::Blue}
+            LedState::Blue => {
+                println!("Green now");
+                self = LedState::Green}
+            LedState::Green => {
+                println!("Blue now");
+                self = LedState::All}
+            LedState::All => {
+                println!("Off now");
+                self = LedState::Off}
         };
-        //*self
-        LedState::Red
+        self
     }
     fn as_value(&self) -> [u8; 3] {
         match self {
@@ -81,7 +90,7 @@ impl PeckBoard {
                 .map_err(|e:GpioError| Error::LineGetError {source:e, line: Self::INTERRUPT_LINE}).unwrap();
             let mut events = AsyncLineEventHandle::new(interrupt_line.events(
                 LineRequestFlags::INPUT,
-                EventRequestFlags::FALLING_EDGE,
+                EventRequestFlags::BOTH_EDGES, //Setting flags to FALLING_EDGE only does not work
                 "async peckboard interrupt",
             ).unwrap()).unwrap();
 
@@ -94,11 +103,19 @@ impl PeckBoard {
             loop {
                 match events.next().await {
                     Some(event) => {
-                        let values = key_handles.get_values().unwrap();
-                        let position = values.iter().find(|&&x| x == 1).unwrap();
-                        println!("Position is {:?}", position);
-                        self.leds.pecked(position);
-                        println!("Values are: {:?}", key_handles.get_values().unwrap());},
+                        match event.unwrap().event_type() {
+                            EventType::FallingEdge => {
+                                let values = key_handles.get_values().unwrap();
+                                println!("Values are: {:?}", &values);
+                                let position = values.iter().position(|&x| x == 1).unwrap_or(3);
+                                println!("Position is {:?}", position);
+                                self.leds.pecked(position);
+                                //TODO: add a timeout period
+                                tokio::time::sleep(Duration::from_millis(500));
+                            },
+                            EventType::RisingEdge => continue
+                        }
+                    },
                     None => break,
                 };
             }
@@ -125,7 +142,7 @@ impl PeckLEDs {
             .map_err(|e:GpioError| Error::LinesGetError {source: e, lines: &Self::LEFT_LINES}).unwrap()
             .request(LineRequestFlags::OUTPUT, &LedState::Off.as_value(), "peck_leds")
             .map_err(|e:GpioError| Error::LinesReqError {source: e, lines: &Self::LEFT_LINES}).unwrap();
-        let peck_states: Vec<LedState> = vec![LedState::Off,LedState::Off,LedState::Off];
+        let mut peck_states: Vec<LedState> = vec![LedState::Off,LedState::Off,LedState::Off];
 
         Ok(PeckLEDs{
             right_leds,
@@ -134,24 +151,33 @@ impl PeckLEDs {
             peck_position: peck_states
         })
     }
-    pub fn pecked(&mut self, position: &u8) -> Result<(), Error> {
+    pub fn pecked(&mut self, position: usize) -> Result<(), Error> {
         match position {
             0 => {
-                let led_state = &self.peck_position[0].next().as_value();
+                let led_state = self.peck_position[0].next();
+                println!("state is {:?}", &led_state);
+                let led_state = &led_state.as_value();
+                println!("Change on line 13");
                 self.right_leds.set_values(led_state).unwrap()},
             1 => {
-                let led_state = &self.peck_position[1].next().as_value();
-                self.right_leds.set_values(led_state).unwrap()},
+                let led_state = self.peck_position[1].next();
+                println!("state is {:?}", &led_state);
+                let led_state = &led_state.as_value();
+                println!("Change on line 14");
+                self.center_leds.set_values(led_state).unwrap()},
             2 => {
-                let led_state = &self.peck_position[2].next().as_value();
-                self.right_leds.set_values(led_state).unwrap()},
+                let led_state = self.peck_position[2].next();
+                println!("state is {:?}", &led_state);
+                let led_state = &led_state.as_value();
+                println!("Change on line 15");
+                self.left_leds.set_values(led_state).unwrap()},
             _ => {println!("Invalid peck information")}
         }
         Ok(())
     }
 }
-impl PeckKeys {
 
+impl PeckKeys {
     const IR: [u32; 3] = [9,10,11];
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
         let _ir_handles: Vec<LineHandle> = Self::IR.iter()
