@@ -1,27 +1,24 @@
 use gpio_cdev::{Chip, AsyncLineEventHandle,
-                LineRequestFlags, LineEventHandle,
+                LineRequestFlags,
                 LineHandle, MultiLineHandle,
                 EventRequestFlags, EventType,
-                errors::Error as GpioError, LineEvent};
+                errors::Error as GpioError};
 use futures::stream::StreamExt;
-use tokio::{task::JoinHandle,
-            time::Duration
-};
+//use tokio::*;
 use thiserror;
-use std::{sync::{Arc, Mutex, }, iter};
-use std::iter::Map;
 
-pub struct PeckLEDs {
+
+struct PeckLEDs {
     right_leds: MultiLineHandle,
     center_leds: MultiLineHandle,
     left_leds: MultiLineHandle,
-    pub peck_position: Vec<LedState>,
+    peck_position: Vec<LedState>,
 }
-pub struct PeckKeys {
+struct PeckKeys {
 }
 pub struct PeckBoard {
-    pub leds: PeckLEDs,
-    pub keys: PeckKeys,
+    leds: PeckLEDs,
+    keys: PeckKeys,
 }
 
 impl PeckBoard {
@@ -69,7 +66,7 @@ impl PeckBoard {
                             EventType::FallingEdge => {
                                 let values = key_handles.get_values().unwrap();
                                 let position = values.iter().position(|&x| x == 1).unwrap_or(3);
-                                self.leds.pecked(position);
+                                self.leds.pecked(position).unwrap();
                             },
                         }
                     },
@@ -99,7 +96,7 @@ impl PeckLEDs {
             .map_err(|e:GpioError| Error::LinesGetError {source: e, lines: &Self::LEFT_LINES}).unwrap()
             .request(LineRequestFlags::OUTPUT, &LedState::Off.as_value(), "peck_leds")
             .map_err(|e:GpioError| Error::LinesReqError {source: e, lines: &Self::LEFT_LINES}).unwrap();
-        let mut peck_states: Vec<LedState> = vec![LedState::Off,LedState::Off,LedState::Off];
+        let peck_states: Vec<LedState> = vec![LedState::Off,LedState::Off,LedState::Off];
 
         Ok(PeckLEDs{
             right_leds,

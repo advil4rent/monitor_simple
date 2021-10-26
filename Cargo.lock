@@ -219,16 +219,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "monitor_sample"
-version = "0.1.0"
-dependencies = [
- "futures",
- "gpio-cdev",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "nix"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +279,16 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "winapi",
+]
+
+[[package]]
+name = "peckboard_test"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gpio-cdev",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
