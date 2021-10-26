@@ -10,8 +10,8 @@ async fn main() {
     println!("starting monitor");
     peck_board.monitor().await.unwrap();
     loop {
-        println!("A little tune");
+        println!("Main thread doing nothing");
         thread::sleep(Duration::from_secs(10000));
     }
-    println!("awaiting monitor")
+
 }

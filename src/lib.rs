@@ -5,12 +5,10 @@ use gpio_cdev::{Chip, AsyncLineEventHandle,
                 errors::Error as GpioError, LineEvent};
 use futures::stream::StreamExt;
 use tokio::{task::JoinHandle,
-            time::Duration,
-            //sync::{oneshot, mpsc}
+            time::Duration
 };
 use thiserror;
 use std::{sync::{Arc, Mutex, }, iter};
-//                atomic::{AtomicI8, AtomicUsize, Ordering}}};
 use std::iter::Map;
 
 pub struct PeckLEDs {
@@ -24,45 +22,6 @@ pub struct PeckKeys {
 pub struct PeckBoard {
     pub leds: PeckLEDs,
     pub keys: PeckKeys,
-}
-#[derive(Clone, Copy, Debug)]
-pub enum LedState {
-    Off,
-    Red,
-    Blue,
-    Green,
-    All,
-}
-impl LedState {
-    fn next(mut self) -> Self {
-        match self {
-            LedState::Off => {
-                println!("Red now");
-                self = LedState::Red}
-            LedState::Red => {
-                println!("Blue now");
-                self = LedState::Blue}
-            LedState::Blue => {
-                println!("Green now");
-                self = LedState::Green}
-            LedState::Green => {
-                println!("Blue now");
-                self = LedState::All}
-            LedState::All => {
-                println!("Off now");
-                self = LedState::Off}
-        };
-        self
-    }
-    fn as_value(&self) -> [u8; 3] {
-        match self {
-            LedState::Off => {[0,0,0]}
-            LedState::Red => {[1,0,0]}
-            LedState::Blue => {[0,1,0]}
-            LedState::Green => {[0,0,1]}
-            LedState::All => {[1,1,1]}
-        }
-    }
 }
 
 impl PeckBoard {
@@ -90,7 +49,7 @@ impl PeckBoard {
                 .map_err(|e:GpioError| Error::LineGetError {source:e, line: Self::INTERRUPT_LINE}).unwrap();
             let mut events = AsyncLineEventHandle::new(interrupt_line.events(
                 LineRequestFlags::INPUT,
-                EventRequestFlags::BOTH_EDGES, //Setting flags to FALLING_EDGE only does not work
+                EventRequestFlags::BOTH_EDGES, //Setting flags to FALLING_EDGE does not exclude RISING events??
                 "async peckboard interrupt",
             ).unwrap()).unwrap();
 
@@ -154,29 +113,31 @@ impl PeckLEDs {
     pub fn pecked(&mut self, position: usize) -> Result<(), Error> {
         match position {
             0 => {
-                let led_state = self.peck_position[0].next();
-                println!("state is {:?}", &led_state);
-                let led_state = &led_state.as_value();
-                println!("Change on line 13");
-                self.right_leds.set_values(led_state).unwrap()},
+                self.peck_position[0].next();
+                let led_state = &self.peck_position[0].as_value();
+                self.right_leds.set_values(led_state)
+                    .map_err(|e: GpioError| Error::LinesSetError {source:e, lines: &Self::RIGHT_LINES})
+                    .unwrap()
+            },
             1 => {
-                let led_state = self.peck_position[1].next();
-                println!("state is {:?}", &led_state);
-                let led_state = &led_state.as_value();
-                println!("Change on line 14");
-                self.center_leds.set_values(led_state).unwrap()},
+                self.peck_position[1].next();
+                let led_state = &self.peck_position[1].as_value();
+                self.right_leds.set_values(led_state)
+                    .map_err(|e: GpioError| Error::LinesSetError { source: e, lines: &Self::CENTER_LINES })
+                    .unwrap()
+            },
             2 => {
-                let led_state = self.peck_position[2].next();
-                println!("state is {:?}", &led_state);
-                let led_state = &led_state.as_value();
-                println!("Change on line 15");
-                self.left_leds.set_values(led_state).unwrap()},
+                self.peck_position[2].next();
+                let led_state = &self.peck_position[2].as_value();
+                self.right_leds.set_values(led_state)
+                    .map_err(|e: GpioError| Error::LinesSetError {source:e, lines: &Self::LEFT_LINES})
+                    .unwrap()
+            },
             _ => {println!("Invalid peck information")}
         }
         Ok(())
     }
 }
-
 impl PeckKeys {
     const IR: [u32; 3] = [9,10,11];
     pub fn new(chip: &mut Chip) -> Result<Self, Error> {
@@ -191,6 +152,35 @@ impl PeckKeys {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum LedState {
+    Off,
+    Blue,
+    Red,
+    Green,
+    All,
+}
+impl LedState {
+    fn next(&mut self) -> &mut Self {
+        match self {
+            LedState::Off   => {*self = LedState::Blue}
+            LedState::Blue   => {*self = LedState::Red}
+            LedState::Red  => {*self = LedState::Green}
+            LedState::Green => {*self = LedState::All}
+            LedState::All   => {*self = LedState::Off}
+        };
+        self
+    }
+    fn as_value(&self) -> [u8; 3] {
+        match self {
+            LedState::Off => {[0,0,0]}
+            LedState::Red => {[1,0,0]}
+            LedState::Blue => {[0,1,0]}
+            LedState::Green => {[0,0,1]}
+            LedState::All => {[1,1,1]}
+        }
+    }
+}
 #[derive(Debug)]
 pub enum ChipNumber {
     Chip1,
