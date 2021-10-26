@@ -6,10 +6,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gpio-cdev = {version = "0.4.0", features = ["async-tokio"]}
+gpio-cdev = {version = "0.5.0", features = ["async-tokio"]}
 tokio = {version="1.12.0", features = ["full"]}
-nix = "0.23.0"
-quicli = "0.4.0"
-structopt = "0.3.23"
-anyhow = "1.0.44"
 thiserror = "1.0.30"
+futures = "0.3.17"
