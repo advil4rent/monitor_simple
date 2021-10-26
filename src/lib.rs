@@ -28,6 +28,7 @@ impl PeckBoard {
     const INTERRUPT_CHIP: &'static str = "/dev/gpiochip2";
     const INTERRUPT_LINE: u32 = 24;
     const PECK_KEY_LINES: [u32; 3] = [13,14,15];
+
     pub async fn new (chip: &str) -> Result<Self, Error> {
         let mut chip = Chip::new(chip).map_err(|e:GpioError|
             Error::ChipError {source: e,
@@ -62,17 +63,14 @@ impl PeckBoard {
             loop {
                 match events.next().await {
                     Some(event) => {
+                        //println!("{:?}", event.unwrap().event_type())
                         match event.unwrap().event_type() {
+                            EventType::RisingEdge => {continue},
                             EventType::FallingEdge => {
                                 let values = key_handles.get_values().unwrap();
-                                println!("Values are: {:?}", &values);
                                 let position = values.iter().position(|&x| x == 1).unwrap_or(3);
-                                println!("Position is {:?}", position);
                                 self.leds.pecked(position);
-                                //TODO: add a timeout period
-                                tokio::time::sleep(Duration::from_millis(500));
                             },
-                            EventType::RisingEdge => continue
                         }
                     },
                     None => break,
@@ -122,18 +120,18 @@ impl PeckLEDs {
             1 => {
                 self.peck_position[1].next();
                 let led_state = &self.peck_position[1].as_value();
-                self.right_leds.set_values(led_state)
+                self.center_leds.set_values(led_state)
                     .map_err(|e: GpioError| Error::LinesSetError { source: e, lines: &Self::CENTER_LINES })
                     .unwrap()
             },
             2 => {
                 self.peck_position[2].next();
                 let led_state = &self.peck_position[2].as_value();
-                self.right_leds.set_values(led_state)
+                self.left_leds.set_values(led_state)
                     .map_err(|e: GpioError| Error::LinesSetError {source:e, lines: &Self::LEFT_LINES})
                     .unwrap()
             },
-            _ => {println!("Invalid peck information")}
+            _ => {}//println!("Invalid peck information")}
         }
         Ok(())
     }
