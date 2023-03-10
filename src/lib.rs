@@ -23,7 +23,7 @@ pub struct PeckBoard {
 
 impl PeckBoard {
     const INTERRUPT_CHIP: &'static str = "/dev/gpiochip2";
-    const INTERRUPT_LINE: u32 = 24;
+    const INTERRUPT_LINE: u32 = 22;
     const PECK_KEY_LINES: [u32; 3] = [13,14,15];
 
     pub async fn new (chip: &str) -> Result<Self, Error> {

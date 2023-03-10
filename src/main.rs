@@ -8,7 +8,7 @@ async fn main() {
         .expect("Couldn't initialize PeckBoard chip");
     peck_board.monitor().await.unwrap();
     loop {
-        println!("Main thread doing nothing");
+        println!("PeckBoard Component initiated. Test by pecking manually");
         thread::sleep(Duration::from_secs(100));
     }
 
